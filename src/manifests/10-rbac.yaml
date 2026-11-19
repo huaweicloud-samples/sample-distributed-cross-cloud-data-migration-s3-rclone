@@ -1,0 +1,107 @@
+# 运行侧访问模型（传输命名空间内）。
+#
+# 三个服务账号各有明确用途：
+#   * transfer-worker      —— 传输副本容器使用。除读取自身 Pod 并回写进度标注外不需要任何
+#                             集群接口权限；对象存储与消息队列的访问不经集群接口。
+#                             对 pods 具备 get/patch/update 是必需的：缺少 patch/update 时，
+#                             进度回写失败会把实际已成功的副本误判为异常。
+#   * transfer-lister      —— 列举作业使用。不挂载服务账号令牌（automountServiceAccountToken: false），
+#                             只读源端清单并投递任务消息，不触碰任何集群接口。
+#   * transfer-orchestrator —— 提交入口使用。只在 transfer 命名空间内创建与观察作业、
+#                             配置字典与凭据对象，不授予集群级权限。
+#
+# 本文件不含任何凭据对象：源端与目的端凭据只由提交脚本从环境变量写入集群凭据对象，
+# 以免占位内容覆盖运行中的真实凭据。
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: transfer-worker
+  namespace: transfer
+  labels:
+    app.kubernetes.io/component: worker
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: transfer-lister
+  namespace: transfer
+  labels:
+    app.kubernetes.io/component: lister
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: transfer-orchestrator
+  namespace: transfer
+  labels:
+    app.kubernetes.io/component: orchestrator
+automountServiceAccountToken: false
+---
+# 传输副本的最小接口权限：读自身 Pod、回写进度标注、记录事件。
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: transfer-worker
+  namespace: transfer
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: transfer-worker
+  namespace: transfer
+subjects:
+  - kind: ServiceAccount
+    name: transfer-worker
+    namespace: transfer
+roleRef:
+  kind: Role
+  name: transfer-worker
+  apiGroup: rbac.authorization.k8s.io
+---
+# 提交入口权限：展开传输副本、投递列举作业、维护配置字典与凭据对象。
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: transfer-orchestrator
+  namespace: transfer
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "watch", "patch", "update", "delete"]
+  - apiGroups: ["batch"]
+    resources: ["jobs/status"]
+    verbs: ["get"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/scale"]
+    verbs: ["create", "get", "list", "watch", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["pods", "configmaps", "secrets"]
+    verbs: ["create", "get", "list", "watch", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["pods/log", "pods/status"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: transfer-orchestrator
+  namespace: transfer
+subjects:
+  - kind: ServiceAccount
+    name: transfer-orchestrator
+    namespace: transfer
+roleRef:
+  kind: Role
+  name: transfer-orchestrator
+  apiGroup: rbac.authorization.k8s.io

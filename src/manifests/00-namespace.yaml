@@ -1,0 +1,12 @@
+# 作业命名空间。
+#
+# 名称与 infra 侧声明保持一致（infra/cce.tf 的 huaweicloud_cce_namespace.transfer、
+# infra/outputs.tf 输出 namespace、infra/lts.tf 采集规则的 name_space_regex 均为 transfer）。
+# 集群由 infra 创建时本文件是幂等的；使用已有集群时可由本文件单独建立。
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: transfer
+  labels:
+    app.kubernetes.io/name: distributed-object-transfer
+    app.kubernetes.io/part-of: xfer-rclone

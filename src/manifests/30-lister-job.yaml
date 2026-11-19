@@ -1,0 +1,82 @@
+# 列举作业：分页读取源端对象清单，按 BATCH_SIZE 切批投递到任务主题。
+#
+# 形态说明：本作业是一次性任务，跑完即退出；副本数不参与其吞吐（吞吐由传输副本决定）。
+# 资源规格取自 infra 的列举节点池规格（c7.large.2 = 2 vCPU / 4 GiB）的上限口径。
+# 凭据只以「凭据对象名 + 键名」引用，值由提交脚本注入，本文件不含任何凭据。
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: xfer-rclone-lister
+  namespace: transfer
+  labels:
+    app.kubernetes.io/name: distributed-object-transfer
+    app.kubernetes.io/component: lister
+spec:
+  # 列举失败按批整体重来；完成对象保留 7 天，与日志保留天数一致
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: distributed-object-transfer
+        app.kubernetes.io/component: lister
+    spec:
+      restartPolicy: Never
+      serviceAccountName: transfer-lister
+      automountServiceAccountToken: false
+      # 与传输节点池分开，列举不抢占传输带宽
+      nodeSelector:
+        role: lister
+      imagePullSecrets:
+        - name: xfer-rclone-swr-pull
+      containers:
+        - name: lister
+          image: "__LISTER_IMAGE__"
+          imagePullPolicy: IfNotPresent
+          command:
+            - "python3"
+            - "-u"
+            - "/opt/transfer/coordinator/lister_producer.py"
+          envFrom:
+            - configMapRef:
+                name: xfer-rclone-transfer-config
+          env:
+            - name: SRC_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: xfer-rclone-source-endpoint
+                  key: endpoint
+            - name: SRC_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: xfer-rclone-source-access-key
+                  key: access_key
+            - name: SRC_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: xfer-rclone-source-secret-key
+                  key: secret_key
+            - name: RCLONE_CONFIG_DIR
+              value: "/etc/rclone"
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "3Gi"
+          volumeMounts:
+            - name: rclone-config
+              mountPath: /etc/rclone
+            - name: buffer
+              mountPath: /var/cache/rclone
+      volumes:
+        # 搬运工具配置由容器启动时按凭据渲染，随 Pod 生命周期存在
+        - name: rclone-config
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
+        # 列举只产生键名，缓冲需求极小
+        - name: buffer
+          emptyDir:
+            sizeLimit: 128Mi

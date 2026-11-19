@@ -1,0 +1,92 @@
+# ============================================================================
+# 参数样例：复制为 terraform.tfvars 后按环境修改
+# ============================================================================
+# 凭据不写在这里。执行 terraform 前用环境变量提供：
+#   export HW_ACCESS_KEY=<你的访问密钥 ID>
+#   export HW_SECRET_KEY=<你的访问密钥>
+# 作业运行期的源端与目的端凭据同样只经环境变量或集群凭据对象注入。
+
+region      = "cn-north-4"
+name_prefix = "xfer-rclone"
+
+# ---------------------------------------------------------------------------
+# 网络与出网通道
+# ---------------------------------------------------------------------------
+vpc_cidr = "10.0.0.0/16"
+
+subnet_cidrs = [
+  "10.0.10.0/24",
+  "10.0.11.0/24",
+  "10.0.12.0/24",
+]
+
+availability_zones = [
+  "cn-north-4a",
+  "cn-north-4b",
+  "cn-north-4c",
+]
+
+# NAT 网关规格：1=小型 / 2=中型 / 3=大型 / 4=超大型
+nat_spec = "1"
+
+# 出网带宽上限（Mbit/s），是端到端吞吐的天花板
+nat_eip_bandwidth_size = 100
+
+# ---------------------------------------------------------------------------
+# 目的端存储桶（桶名全域唯一，必须改成未被占用的名称）
+# ---------------------------------------------------------------------------
+dest_bucket_name     = "xfer-rclone-dest-<你的唯一后缀>"
+force_destroy_bucket = false
+
+# ---------------------------------------------------------------------------
+# 任务队列
+# ---------------------------------------------------------------------------
+rocketmq_engine_version    = "4.8.0"
+rocketmq_flavor_id         = "c6.4u8g.cluster"
+rocketmq_storage_spec_code = "dms.physical.storage.high.v2"
+rocketmq_broker_num        = 1
+rocketmq_storage_space     = 300
+
+# 同一批对象的最大重投次数，达到上限后进入死信主题
+retry_max_times = 2
+
+# ---------------------------------------------------------------------------
+# 容器集群与节点池
+# ---------------------------------------------------------------------------
+cce_control_flavor    = "cce.s1.small"
+cce_cluster_version   = ""
+container_network_cidr = "172.16.0.0/16"
+service_network_cidr   = "10.254.0.0/16"
+
+lister_node_flavor = "c7.large.2"
+# 传输节点规格：内存优化型 4 vCPU / 32 GiB，显式写死
+# r7 家族在 cn-north-4 不可售，改用可售的 m7.xlarge.8
+worker_node_flavor = "m7.xlarge.8"
+
+node_os                  = "Ubuntu 22.04"
+node_root_volume_size    = 50
+node_root_volume_type    = "SSD"
+worker_node_data_volume_size = 100
+
+# 节点登录方式：下面两项二选一，另一项留空
+node_password = ""
+node_key_pair = ""
+
+# 需要固定节点镜像时打开，表达式必须首尾锚定
+use_pinned_node_image   = false
+node_image_name_regex   = "^Ubuntu 22.04 server 64bit$"
+
+# ---------------------------------------------------------------------------
+# 作业形态
+# ---------------------------------------------------------------------------
+# 传输副本数：固定值。队列积压增多时不会自动扩容，需要手动调大后重新提交
+worker_replicas             = 1
+worker_processes_per_replica = 6
+batch_size                  = 20
+rclone_chunk_size           = "200M"
+
+swr_lister_image = "lister"
+swr_worker_image = "worker"
+image_tag        = "v1"
+
+log_retention_days = 7

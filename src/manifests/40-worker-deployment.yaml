@@ -1,0 +1,112 @@
+# 传输副本：固定副本数，逐批领取任务消息并用搬运工具把对象写入目的端存储桶。
+#
+# 副本数来自 infra 的 worker_replicas（固定值，不随队列积压自动增减）：
+# 需要更高吞吐时，调大该变量后重新执行 src/jobs/submit_transfer_job.sh。
+# 端到端吞吐上限 = 副本数 × 每副本并行进程数 × 出网带宽，三项均为固定值。
+#
+# 资源规格口径：传输节点池为 r7.xlarge.4（4 vCPU / 32 GiB，内存优化型，高网络基线），
+# 请求量按单副本独占一台节点的一半以上给出，上限留出系统与采集组件余量。
+# 缓冲目录挂在节点数据盘对应的卷上，容量口径与 infra 的 worker_node_data_volume_size 一致。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: xfer-rclone-worker
+  namespace: transfer
+  labels:
+    app.kubernetes.io/name: distributed-object-transfer
+    app.kubernetes.io/component: worker
+spec:
+  replicas: __WORKER_REPLICAS__
+  revisionHistoryLimit: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: distributed-object-transfer
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: distributed-object-transfer
+        app.kubernetes.io/component: worker
+    spec:
+      serviceAccountName: transfer-worker
+      # 与列举节点池分开；一台传输节点承载一个副本，避免多副本争抢同一块缓冲盘
+      nodeSelector:
+        role: transfer
+      terminationGracePeriodSeconds: 300
+      imagePullSecrets:
+        - name: xfer-rclone-swr-pull
+      containers:
+        - name: worker
+          image: "__WORKER_IMAGE__"
+          imagePullPolicy: IfNotPresent
+          command:
+            - "/bin/bash"
+            - "/opt/transfer/coordinator/worker_entrypoint.sh"
+          envFrom:
+            - configMapRef:
+                name: xfer-rclone-transfer-config
+          env:
+            # 源端：读清单与取对象
+            - name: SRC_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: xfer-rclone-source-endpoint
+                  key: endpoint
+            - name: SRC_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: xfer-rclone-source-access-key
+                  key: access_key
+            - name: SRC_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: xfer-rclone-source-secret-key
+                  key: secret_key
+            # 目的端：写入存储桶
+            - name: DST_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: xfer-rclone-dest-access-key
+                  key: access_key
+            - name: DST_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: xfer-rclone-dest-secret-key
+                  key: secret_key
+            - name: RCLONE_CONFIG_DIR
+              value: "/etc/rclone"
+            # 进度回写与指标标注需要知道自身身份
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          resources:
+            requests:
+              cpu: "__WORKER_CPU_REQUEST__"
+              memory: "__WORKER_MEMORY_REQUEST__"
+            limits:
+              cpu: "__WORKER_CPU_LIMIT__"
+              memory: "__WORKER_MEMORY_LIMIT__"
+          volumeMounts:
+            - name: rclone-config
+              mountPath: /etc/rclone
+            # 分片缓冲：搬运工具的分片与临时文件写这里，容量与节点数据盘口径一致
+            - name: buffer
+              mountPath: /var/cache/rclone
+      volumes:
+        - name: rclone-config
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
+        - name: buffer
+          emptyDir:
+            sizeLimit: "__WORKER_BUFFER_LIMIT__"
