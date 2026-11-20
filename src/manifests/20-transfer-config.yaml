@@ -1,0 +1,67 @@
+# 传输作业运行参数（非敏感项）。
+#
+# 本文件是模板：值形如「两个下划线包裹的大写名称」的占位符，由 src/jobs/render_manifests.py 注入
+# （注入来源为 infra 输出与提交时的环境变量，默认值与 infra/terraform.tfvars.example 一致）。
+# 敏感项一律不在此处：源端与目的端凭据只经集群凭据对象注入，见 infra/secrets.tf 的凭据名。
+#
+# 键的消费方：
+#   * 列举作业与传输副本以 envFrom 整体注入；
+#   * 协调脚本按键名读取，未识别的键不影响运行（便于运维临时调参）。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: xfer-rclone-transfer-config
+  namespace: transfer
+  labels:
+    app.kubernetes.io/name: distributed-object-transfer
+    app.kubernetes.io/component: config
+data:
+  # ---- 区域与对象存储端点（对象存储访问适配：区域端点 + 虚拟托管风格 + V4 签名）----
+  HW_REGION: "__HW_REGION__"
+  OBS_ENDPOINT: "__OBS_ENDPOINT__"
+  OBS_PROVIDER: "HuaweiOBS"
+  OBS_FORCE_PATH_STYLE: "false"
+  OBS_SIGN_ALGORITHM: "v4"
+  OBS_NO_CHECK_BUCKET: "true"
+  # 源端按兼容协议接入，取值由搬运工具的协议名给出
+  SRC_PROVIDER: "Other"
+
+  # ---- 本次传输任务的三元组 ----
+  SRC_BUCKET: "__SRC_BUCKET__"
+  DST_BUCKET: "__DST_BUCKET__"
+  PREFIX: "__PREFIX__"
+
+  # ---- 任务队列（主题与消费组名以 infra/rocketmq.tf 为准）----
+  ROCKETMQ_NAMESRV: "__ROCKETMQ_NAMESRV__"
+  TASK_TOPIC: "__TASK_TOPIC__"
+  CONSUMER_GROUP: "__CONSUMER_GROUP__"
+  DEAD_LETTER_TOPIC: "__DEAD_LETTER_TOPIC__"
+  NATIVE_DEAD_LETTER_TOPIC: "__NATIVE_DEAD_LETTER_TOPIC__"
+  RETRY_MAX_TIMES: "__RETRY_MAX_TIMES__"
+
+  # ---- 分片与并发形态（与 infra/variables.tf 同名变量一一对应）----
+  WORKER_REPLICAS: "__WORKER_REPLICAS__"
+  WORKER_PROCESSES_PER_REPLICA: "__WORKER_PROCESSES_PER_REPLICA__"
+  BATCH_SIZE: "__BATCH_SIZE__"
+
+  # ---- 搬运工具全局参数 ----
+  RCLONE_CHUNK_SIZE: "__RCLONE_CHUNK_SIZE__"
+  RCLONE_UPLOAD_CONCURRENCY: "__RCLONE_UPLOAD_CONCURRENCY__"
+  RCLONE_BUFFER_SIZE: "__RCLONE_BUFFER_SIZE__"
+  RCLONE_BWLIMIT: "__RCLONE_BWLIMIT__"
+  RCLONE_RETRIES: "__RCLONE_RETRIES__"
+  RCLONE_RETRY_SLEEP: "__RCLONE_RETRY_SLEEP__"
+  RCLONE_CACHE_DIR: "/var/cache/rclone"
+  RCLONE_CONFIG: "/etc/rclone/rclone.conf"
+  RCLONE_EXTRA_ARGS: ""
+
+  # ---- 校验开关：开启后按校验和比对而非大小与时间戳 ----
+  VERIFY_CHECKSUM: "__VERIFY_CHECKSUM__"
+
+  # ---- 分片缓冲：容量口径与 infra 的 worker_node_data_volume_size 一致 ----
+  WORKER_BUFFER_SIZE_LIMIT: "__WORKER_BUFFER_LIMIT__"
+
+  # ---- 可观测 ----
+  LOG_LEVEL: "INFO"
+  METRICS_TO_STDOUT: "true"
+  PROGRESS_REPORT_INTERVAL_SECONDS: "30"
